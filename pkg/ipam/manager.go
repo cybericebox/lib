@@ -119,6 +119,11 @@ func (m *IPAManager) ReleaseChildCIDR(ctx context.Context, childCIDR string) err
 		}
 	}
 
+	prefix, err = m.ipaManager.PrefixFrom(ctx, childCIDR)
+	if err != nil {
+		return appError.ErrIPAM.WithError(err).WithMessage("Failed to get prefix").Err()
+	}
+
 	if err = m.ipaManager.ReleaseChildPrefix(ctx, prefix); err != nil {
 		return appError.ErrIPAM.WithError(err).WithMessage("Failed to release child prefix").Err()
 	}
