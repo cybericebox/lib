@@ -1,1 +1,1 @@
-# lib
+# Library with common modules
