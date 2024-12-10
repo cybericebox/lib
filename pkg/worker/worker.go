@@ -15,6 +15,7 @@ type (
 	taskWorker struct {
 		m           sync.RWMutex
 		maxWorkers  int
+		throttle    time.Duration
 		inputTasks  chan task
 		queuedTasks []task
 		toDoTasks   chan task
@@ -140,13 +141,14 @@ func (t *task) incrementRetriesCount() {
 	t.retriesCount++
 }
 
-func NewWorker(maxWorkers int) Worker {
+func NewWorker(maxWorkers int, throttle time.Duration) Worker {
 	w := &taskWorker{
 		maxWorkers:  maxWorkers,
 		inputTasks:  make(chan task, 10),
 		queuedTasks: make([]task, 0),
 		toDoTasks:   make(chan task, maxWorkers),
 		doneTasks:   make(chan task, maxWorkers),
+		throttle:    throttle,
 	}
 
 	w.start()
@@ -204,7 +206,7 @@ func (w *taskWorker) manageTasks() {
 				t.onDone(t.result.CheckIfNeedToDoError, t.result.DoError)
 			}
 
-		case <-time.Tick(time.Millisecond):
+		case <-time.Tick(w.throttle):
 			w.m.Lock()
 			if len(w.queuedTasks) > 0 {
 				if w.queuedTasks[nextIndex].timeToDo.Before(time.Now()) {
