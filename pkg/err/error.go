@@ -22,6 +22,7 @@ type (
 		Unwrap() error
 		Code() Code
 		Is(err error) bool
+		Equal(err error) bool
 		UnwrapNotInternalError() Error
 	}
 
@@ -75,6 +76,15 @@ func (e appError) Code() Code {
 }
 
 func (e appError) Is(err error) bool {
+	var e2 appError
+	ok := errors.As(err, &e2)
+	if !ok {
+		return false
+	}
+	return e.code.As(e2.code)
+}
+
+func (e appError) Equal(err error) bool {
 	var e2 appError
 	ok := errors.As(err, &e2)
 	if !ok {
