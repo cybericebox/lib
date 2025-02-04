@@ -3,8 +3,8 @@ package token
 import (
 	"encoding/base64"
 	"github.com/cybericebox/lib/pkg/appError"
-	"github.com/gofrs/uuid"
 	"github.com/golang-jwt/jwt"
+	"github.com/google/uuid"
 	"time"
 )
 
@@ -142,7 +142,7 @@ func (m *Manager) GetRefreshTokenTTL() time.Duration {
 func (m *Manager) newToken(subject interface{}, tokenTTL time.Duration, tokenType ...int8) (string, error) {
 	tokenClaims := jwt.MapClaims{}
 	tokenClaims["exp"] = time.Now().Add(tokenTTL).Unix()
-	tokenClaims["jti"] = uuid.Must(uuid.NewV4())
+	tokenClaims["jti"] = uuid.New()
 	tokenClaims["sub"] = subject
 	// If a token type is provided, add it to the token
 	if len(tokenType) > 0 {
