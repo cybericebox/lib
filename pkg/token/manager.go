@@ -13,33 +13,71 @@ const (
 	tokenTypeRefresh
 )
 
-type Manager struct {
-	signingKey string
-	accessTTL  time.Duration
-	refreshTTL time.Duration
-}
-
-func NewTokenManager(signingKey string, accessTTL, refreshTTL time.Duration) (*Manager, error) {
-	if signingKey == "" {
-		return nil, appError.ErrTokenEmptySignature.Err()
+type (
+	manager struct {
+		signingKey string
+		issuer     string
 	}
 
-	if accessTTL <= 0 || refreshTTL <= 0 {
-		return nil, appError.ErrTokenTTLMustBeGreaterThanZero.Err()
+	AccessRefreshTokenManager struct {
+		manager    *manager
+		accessTTL  time.Duration
+		refreshTTL time.Duration
 	}
 
-	return &Manager{signingKey: signingKey, accessTTL: accessTTL, refreshTTL: refreshTTL}, nil
+	Base64TokenManager struct {
+		manager *manager
+		ttl     time.Duration
+	}
+
+	AccessRefreshTokenDependencies struct {
+		SigningKey string
+		Issuer     string
+		AccessTTL  time.Duration
+		RefreshTTL time.Duration
+	}
+
+	Base64TokenDependencies struct {
+		SigningKey string
+		Issuer     string
+		TTL        time.Duration
+	}
+
+	dependencies struct {
+		SigningKey string
+		Issuer     string
+	}
+)
+
+func NewAccessRefreshTokenManager(deps AccessRefreshTokenDependencies) (*AccessRefreshTokenManager, error) {
+	if deps.AccessTTL < 0 || deps.RefreshTTL < 0 {
+		return nil, appError.ErrTokenTTLMustBeNotNegative.Err()
+	}
+
+	m, err := newTokenManager(dependencies{SigningKey: deps.SigningKey, Issuer: deps.Issuer})
+	if err != nil {
+		return nil, err
+	}
+
+	return &AccessRefreshTokenManager{
+		manager:    m,
+		accessTTL:  deps.AccessTTL,
+		refreshTTL: deps.RefreshTTL,
+	}, nil
 }
 
-func (m *Manager) NewAccessToken(subject interface{}, ttl ...time.Duration) (string, error) {
+func (m *AccessRefreshTokenManager) NewAccessToken(subject interface{}, ttl ...time.Duration) (string, error) {
 	// If no TTL is provided, use the default access TTL
 	accessTTL := m.accessTTL
 
 	// If a TTL is provided, use that instead
 	if len(ttl) == 1 {
+		if ttl[0] < 0 {
+			return "", appError.ErrTokenTTLMustBeNotNegative.Err()
+		}
 		accessTTL = ttl[0]
 	}
-	token, err := m.newToken(subject, accessTTL, tokenTypeAccess)
+	token, err := m.manager.newToken(subject, accessTTL, tokenTypeAccess)
 	if err != nil {
 		return "", appError.ErrToken.WithError(err).WithMessage("Failed to create access token").Err()
 	}
@@ -47,16 +85,19 @@ func (m *Manager) NewAccessToken(subject interface{}, ttl ...time.Duration) (str
 	return token, nil
 }
 
-func (m *Manager) NewRefreshToken(subject interface{}, ttl ...time.Duration) (string, error) {
+func (m *AccessRefreshTokenManager) NewRefreshToken(subject interface{}, ttl ...time.Duration) (string, error) {
 	// If no TTL is provided, use the default refresh TTL
 	refreshTTL := m.refreshTTL
 
 	// If a TTL is provided, use that instead
 	if len(ttl) == 1 {
+		if ttl[0] < 0 {
+			return "", appError.ErrTokenTTLMustBeNotNegative.Err()
+		}
 		refreshTTL = ttl[0]
 	}
 
-	token, err := m.newToken(subject, refreshTTL, tokenTypeRefresh)
+	token, err := m.manager.newToken(subject, refreshTTL, tokenTypeRefresh)
 	if err != nil {
 		return "", appError.ErrToken.WithError(err).WithMessage("Failed to create refresh token").Err()
 	}
@@ -64,20 +105,9 @@ func (m *Manager) NewRefreshToken(subject interface{}, ttl ...time.Duration) (st
 	return token, nil
 }
 
-func (m *Manager) NewBase64Token(subject interface{}, ttl time.Duration) (string, error) {
-	strToken, err := m.newToken(subject, ttl)
-	if err != nil {
-		return "", appError.ErrToken.WithError(err).WithMessage("Failed to create token").Err()
-	}
-
-	bs64Token := base64.StdEncoding.EncodeToString([]byte(strToken))
-
-	return bs64Token, nil
-}
-
-func (m *Manager) ParseAccessToken(Token string) (interface{}, error) {
+func (m *AccessRefreshTokenManager) ParseAccessToken(Token string) (interface{}, error) {
 	// Parse the token
-	token, err := m.parseToken(Token)
+	token, err := m.manager.parseToken(Token)
 	if err != nil {
 		return "", appError.ErrToken.WithError(err).WithMessage("Failed to parse token").Err()
 	}
@@ -92,9 +122,9 @@ func (m *Manager) ParseAccessToken(Token string) (interface{}, error) {
 	return claims["sub"], nil
 }
 
-func (m *Manager) ParseRefreshToken(Token string) (interface{}, error) {
+func (m *AccessRefreshTokenManager) ParseRefreshToken(Token string) (interface{}, error) {
 	// Parse the token
-	token, err := m.parseToken(Token)
+	token, err := m.manager.parseToken(Token)
 	if err != nil {
 		return "", appError.ErrToken.WithError(err).WithMessage("Failed to parse token").Err()
 	}
@@ -109,7 +139,53 @@ func (m *Manager) ParseRefreshToken(Token string) (interface{}, error) {
 	return claims["sub"], nil
 }
 
-func (m *Manager) ParseBase64Token(base64Token string) (interface{}, error) {
+func (m *AccessRefreshTokenManager) GetAccessTokenTTL() time.Duration {
+	return m.accessTTL
+}
+
+func (m *AccessRefreshTokenManager) GetRefreshTokenTTL() time.Duration {
+	return m.refreshTTL
+}
+
+func NewBase64TokenManager(deps Base64TokenDependencies) (*Base64TokenManager, error) {
+	if deps.TTL < 0 {
+		return nil, appError.ErrTokenTTLMustBeNotNegative.Err()
+	}
+
+	m, err := newTokenManager(dependencies{SigningKey: deps.SigningKey, Issuer: deps.Issuer})
+	if err != nil {
+		return nil, err
+	}
+
+	return &Base64TokenManager{
+		manager: m,
+		ttl:     deps.TTL,
+	}, nil
+}
+
+func (m *Base64TokenManager) NewBase64Token(subject interface{}, ttl ...time.Duration) (string, error) {
+	// If no TTL is provided, use the default TTL
+	baseTTL := m.ttl
+
+	// If a TTL is provided, use that instead
+	if len(ttl) == 1 {
+		if ttl[0] < 0 {
+			return "", appError.ErrTokenTTLMustBeNotNegative.Err()
+		}
+		baseTTL = ttl[0]
+	}
+
+	strToken, err := m.manager.newToken(subject, baseTTL)
+	if err != nil {
+		return "", appError.ErrToken.WithError(err).WithMessage("Failed to create token").Err()
+	}
+
+	bs64Token := base64.StdEncoding.EncodeToString([]byte(strToken))
+
+	return bs64Token, nil
+}
+
+func (m *Base64TokenManager) ParseBase64Token(base64Token string) (interface{}, error) {
 	// Decode the base64 token
 	Token, err := base64.StdEncoding.DecodeString(base64Token)
 	if err != nil {
@@ -117,7 +193,7 @@ func (m *Manager) ParseBase64Token(base64Token string) (interface{}, error) {
 	}
 
 	// Parse the token
-	token, err := m.parseToken(string(Token))
+	token, err := m.manager.parseToken(string(Token))
 	if err != nil {
 		return "", appError.ErrToken.WithError(err).WithMessage("Failed to parse token").Err()
 	}
@@ -131,19 +207,34 @@ func (m *Manager) ParseBase64Token(base64Token string) (interface{}, error) {
 	return claims["sub"], nil
 }
 
-func (m *Manager) GetAccessTokenTTL() time.Duration {
-	return m.accessTTL
+func newTokenManager(deps dependencies) (*manager, error) {
+	if deps.SigningKey == "" {
+		return nil, appError.ErrTokenEmptySignature.Err()
+	}
+
+	if deps.Issuer == "" {
+		return nil, appError.ErrTokenEmptyIssuer.Err()
+	}
+
+	return &manager{signingKey: deps.SigningKey, issuer: deps.Issuer}, nil
 }
 
-func (m *Manager) GetRefreshTokenTTL() time.Duration {
-	return m.refreshTTL
-}
-
-func (m *Manager) newToken(subject interface{}, tokenTTL time.Duration, tokenType ...int8) (string, error) {
+func (m *manager) newToken(subject interface{}, tokenTTL time.Duration, tokenType ...int8) (string, error) {
 	tokenClaims := jwt.MapClaims{}
-	tokenClaims["exp"] = time.Now().Add(tokenTTL).Unix()
-	tokenClaims["jti"] = uuid.New()
+	// Set the token claims
+	// Set the token issuer
+	tokenClaims["iss"] = m.issuer
+	// Set the token subject
 	tokenClaims["sub"] = subject
+	// Set the token issued at time
+	tokenClaims["iat"] = time.Now().Unix()
+	// Set the token expiration time
+	if tokenTTL > 0 {
+		tokenClaims["exp"] = time.Now().Add(tokenTTL).Unix()
+	}
+	// Set token id
+	tokenClaims["jti"] = uuid.New()
+
 	// If a token type is provided, add it to the token
 	if len(tokenType) > 0 {
 		tokenClaims["token"] = tokenType[0]
@@ -159,7 +250,7 @@ func (m *Manager) newToken(subject interface{}, tokenTTL time.Duration, tokenTyp
 	return signed, nil
 }
 
-func (m *Manager) parseToken(Token string) (*jwt.Token, error) {
+func (m *manager) parseToken(Token string) (*jwt.Token, error) {
 	return jwt.Parse(Token, func(token *jwt.Token) (i interface{}, err error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, appError.ErrToken.WithMessage("Unexpected signing method").WithContext("method", token.Header["alg"]).Err()
