@@ -3,8 +3,10 @@ package wgKeyGen
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"github.com/cybericebox/lib/pkg/appError"
+
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/cybericebox/lib/pkg/libError"
 )
 
 // keySize defines the size of the key
@@ -36,7 +38,7 @@ func NewKeyGenerator() *KeyGenerator {
 func (g *KeyGenerator) NewKeyPair() (*KeyPair, error) {
 	privKey, err := newPrivateKey()
 	if err != nil {
-		return nil, appError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate key pair").Err()
+		return nil, libError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate key pair").Err()
 	}
 	pubKey := privKey.Public()
 
@@ -49,7 +51,7 @@ func (g *KeyGenerator) NewKeyPair() (*KeyPair, error) {
 func (g *KeyGenerator) NewPreSharedKey() (string, error) {
 	preShKey, err := newRandomKey()
 	if err != nil {
-		return "", appError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate pre-shared key").Err()
+		return "", libError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate pre-shared key").Err()
 	}
 
 	return preShKey.String(), nil
@@ -60,7 +62,7 @@ func (g *KeyGenerator) NewPreSharedKey() (string, error) {
 func newPrivateKey() (privateKey, error) {
 	k, err := newRandomKey()
 	if err != nil {
-		return privateKey{}, appError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate private key").Err()
+		return privateKey{}, libError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate private key").Err()
 	}
 	k[0] &= 248
 	k[31] = (k[31] & 127) | 64
@@ -72,7 +74,7 @@ func newRandomKey() (*key, error) {
 	var k [keySize]byte
 	_, err := rand.Read(k[:])
 	if err != nil {
-		return nil, appError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate random key").Err()
+		return nil, libError.ErrWgKeyGen.WithError(err).WithMessage("Failed to generate random key").Err()
 	}
 	return (*key)(&k), nil
 }

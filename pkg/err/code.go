@@ -13,86 +13,95 @@ type (
 		detailCode int // for specific error
 
 		message string
-		details map[string]interface{}
+		details map[string]any
 	}
-	Code interface {
-		WithMessage(message string) Code
-		WithMessageF(format string, a ...any) Code
-		WithDetail(key string, value interface{}) Code
-		WithDetails(details map[string]interface{}) Code
-		WithInformCode(informCode int) Code
-		WithObjectCode(objectCode int) Code
-		WithDetailCode(detailCode int) Code
-		WithHTTPCode(httpCode int) Code
-		Code() int
+	StatusCode interface {
+		WithMessage(message string) StatusCode
+		WithMessageF(format string, a ...any) StatusCode
+		WithDetail(key string, value any) StatusCode
+		WithDetails(details map[string]any) StatusCode
+		WithInformCode(informCode int) StatusCode
+		WithObjectCode(objectCode int) StatusCode
+		WithDetailCode(detailCode int) StatusCode
+		WithHTTPCode(httpCode int) StatusCode
+		FullCode() int
 		InformCode() int
 		ObjectCode() int
 		DetailCode() int
 		HTTPCode() int
 		Message() string
-		Details() map[string]interface{}
-		Is(code Code) bool
+		Details() map[string]any
+		Is(code StatusCode) bool
 		IsInternal() bool
 		IsSuccess() bool
-		As(code Code) bool
+		As(code StatusCode) bool
 	}
 )
 
-// NewCode creates a new Code instance with default values.
+// NewStatusCode creates a new StatusCode instance with default values.
 // Default values are:
 // message = "Internal server error",
 // informCode = platformCodeInternal
-func newCode() Code {
+func NewStatusCode() StatusCode {
 	return &code{
 		httpCode:   http.StatusInternalServerError,
 		message:    "Internal server error",
-		informCode: platformCodeInternal,
+		informCode: InformCodeInternal,
 	}
 }
 
-func (c code) WithMessage(message string) Code {
+func (c code) WithMessage(message string) StatusCode {
 	c.message = message
 	return c
 }
 
-func (c code) WithMessageF(format string, a ...any) Code {
+func (c code) WithMessageF(format string, a ...any) StatusCode {
 	c.message = fmt.Sprintf(format, a...)
 	return c
 }
 
-func (c code) WithDetail(key string, value interface{}) Code {
+func (c code) WithDetail(key string, value any) StatusCode {
+	if c.details == nil {
+		c.details = make(map[string]any)
+	}
 	c.details[key] = value
 	return c
 }
 
-func (c code) WithDetails(details map[string]interface{}) Code {
+func (c code) WithDetails(details map[string]any) StatusCode {
+	if c.details == nil {
+		c.details = make(map[string]any)
+	}
+
 	for k, v := range details {
 		c.details[k] = v
 	}
 	return c
 }
 
-func (c code) WithInformCode(informCode int) Code {
+func (c code) WithInformCode(informCode int) StatusCode {
 	c.informCode = informCode
 	return c
 }
 
-func (c code) WithObjectCode(objectCode int) Code {
+func (c code) WithObjectCode(objectCode int) StatusCode {
 	c.objectCode = objectCode
 	return c
 }
 
-func (c code) WithDetailCode(detailCode int) Code {
+func (c code) WithDetailCode(detailCode int) StatusCode {
 	c.detailCode = detailCode
 	return c
 }
 
-func (c code) WithHTTPCode(httpCode int) Code {
+func (c code) WithHTTPCode(httpCode int) StatusCode {
 	c.httpCode = httpCode
 	return c
 }
 
-func (c code) Code() int {
+// FullCode returns the full code as a combination of informCode, objectCode and detailCode.
+// The full code is calculated as: informCode*10000 + objectCode*100 + detailCode
+func (c code) FullCode() int {
 	return c.informCode*10000 + c.objectCode*100 + c.detailCode
 }
 
@@ -116,26 +125,26 @@ func (c code) Message() string {
 	return c.message
 }
 
-func (c code) Details() map[string]interface{} {
+func (c code) Details() map[string]any {
 	if c.details == nil {
-		return make(map[string]interface{})
+		return make(map[string]any)
 	}
 	return c.details
 }
 
-func (c code) Is(code Code) bool {
-	return c.Code() == code.Code()
+func (c code) Is(code StatusCode) bool {
+	return c.FullCode() == code.FullCode()
 }
 
 func (c code) IsInternal() bool {
-	return c.informCode == platformCodeInternal
+	return c.informCode == InformCodeInternal
 }
 
 func (c code) IsSuccess() bool {
-	return c.informCode == platformCodeSuccess
+	return c.informCode == InformCodeSuccess
 }
 
-func (c code) As(code Code) bool {
+func (c code) As(code StatusCode) bool {
 	if code.DetailCode() != 0 {
 		return c.DetailCode() == code.DetailCode()
 	}
@@ -153,30 +162,30 @@ func (c code) As(code Code) bool {
 
 // Standard inform codes
 const (
-	platformCodeInternal = iota + 0
-	platformCodeSuccess
-	platformCodeInvalidData
-	platformCodeObjectNotFound
-	platformCodeObjectExists
-	platformCodeUnauthenticated
-	platformCodeForbidden
-	platformCodeConflict
+	InformCodeInternal = iota + 0
+	InformCodeSuccess
+	InformCodeInvalidData
+	InformCodeObjectNotFound
+	InformCodeObjectExists
+	InformCodeUnauthenticated
+	InformCodeForbidden
+	InformCodeConflict
 )
 
-// Code constants for categories
+// StatusCode constants for categories
 var (
-	// CodeSuccess has http.StatusOK as default http code
-	codeSuccess = newCode().WithInformCode(platformCodeSuccess).WithMessage("Success").WithHTTPCode(http.StatusOK)
-	// CodeInvalidData has http.StatusBadRequest as default http code
-	codeInvalidData = newCode().WithInformCode(platformCodeInvalidData).WithMessage("Invalid data").WithHTTPCode(http.StatusBadRequest)
-	// CodeObjectNotFound has http.StatusNotFound as default http code
-	codeObjectNotFound = newCode().WithInformCode(platformCodeObjectNotFound).WithMessage("Object not found").WithHTTPCode(http.StatusNotFound)
-	// CodeUnauthenticated has http.StatusUnauthorized as default http code
-	codeUnauthenticated = newCode().WithInformCode(platformCodeUnauthenticated).WithMessage("Unauthenticated").WithHTTPCode(http.StatusUnauthorized)
-	// CodeForbidden has http.StatusForbidden as default http code
-	codeForbidden = newCode().WithInformCode(platformCodeForbidden).WithMessage("Forbidden").WithHTTPCode(http.StatusForbidden)
-	// CodeObjectAlreadyExists has http.StatusConflict as default http code
-	codeObjectExists = newCode().WithInformCode(platformCodeObjectExists).WithMessage("Object already exists").WithHTTPCode(http.StatusConflict)
-	// CodeConflict has http.StatusConflict as default http code
-	codeConflict = newCode().WithInformCode(platformCodeConflict).WithMessage("Conflict").WithHTTPCode(http.StatusConflict)
+	// StatusCodeSuccess has http.StatusOK as default http code
+	StatusCodeSuccess = NewStatusCode().WithInformCode(InformCodeSuccess).WithMessage("Success").WithHTTPCode(http.StatusOK)
+	// StatusCodeInvalidData has http.StatusBadRequest as default http code
+	StatusCodeInvalidData = NewStatusCode().WithInformCode(InformCodeInvalidData).WithMessage("Invalid data").WithHTTPCode(http.StatusBadRequest)
+	// StatusCodeObjectNotFound has http.StatusNotFound as default http code
+	StatusCodeObjectNotFound = NewStatusCode().WithInformCode(InformCodeObjectNotFound).WithMessage("Object not found").WithHTTPCode(http.StatusNotFound)
+	// StatusCodeUnauthenticated has http.StatusUnauthorized as default http code
+	StatusCodeUnauthenticated = NewStatusCode().WithInformCode(InformCodeUnauthenticated).WithMessage("Unauthenticated").WithHTTPCode(http.StatusUnauthorized)
+	// StatusCodeForbidden has http.StatusForbidden as default http code
+	StatusCodeForbidden = NewStatusCode().WithInformCode(InformCodeForbidden).WithMessage("Forbidden").WithHTTPCode(http.StatusForbidden)
+	// StatusCodeObjectExists has http.StatusConflict as default http code
+	StatusCodeObjectExists = NewStatusCode().WithInformCode(InformCodeObjectExists).WithMessage("Object already exists").WithHTTPCode(http.StatusConflict)
+	// StatusCodeConflict has http.StatusConflict as default http code
+	StatusCodeConflict = NewStatusCode().WithInformCode(InformCodeConflict).WithMessage("Conflict").WithHTTPCode(http.StatusConflict)
 )

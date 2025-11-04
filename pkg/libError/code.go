@@ -1,4 +1,4 @@
-package appError
+package libError
 
 // Object codes
 const (

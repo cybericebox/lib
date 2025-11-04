@@ -1,4 +1,4 @@
-package appError
+package libError
 
 import "github.com/cybericebox/lib/pkg/err"
 
