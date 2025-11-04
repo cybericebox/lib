@@ -10,8 +10,8 @@ import (
 
 type (
 	appError struct {
-		context      map[string]interface{}
-		code         Code
+		context      map[string]any
+		statusCode   StatusCode
 		filePosition string
 
 		wrappedError error
@@ -20,7 +20,7 @@ type (
 	Error interface {
 		Error() string
 		Unwrap() error
-		Code() Code
+		StatusCode() StatusCode
 		Is(err error) bool
 		Equal(err error) bool
 		UnwrapNotInternalError() Error
@@ -32,24 +32,24 @@ type (
 		WithDetailCode(detailCode int) ErrorCreator
 		WithMessage(message string) ErrorCreator
 		WithMessageF(format string, a ...any) ErrorCreator
-		WithDetail(key string, value interface{}) ErrorCreator
-		WithDetails(details map[string]interface{}) ErrorCreator
+		WithDetail(key string, value any) ErrorCreator
+		WithDetails(details map[string]any) ErrorCreator
 		WithError(err error) ErrorCreator
 		WithWrappedError(errCreator ErrorCreator) ErrorCreator
-		WithContext(key string, value interface{}) ErrorCreator
-		WithCode(code Code) ErrorCreator
-		Err() Error
+		WithContext(key string, value any) ErrorCreator
+		WithStatusCode(statusCode StatusCode) ErrorCreator
+		Err(skip ...int) Error
 	}
 )
 
-func newError() ErrorCreator {
+func NewError() ErrorCreator {
 	return &appError{
-		code: newCode(),
+		statusCode: NewStatusCode(),
 	}
 }
 
 func (e appError) Error() string {
-	errorString := fmt.Sprintf("(%s) #%d '%s'", e.filePosition, e.code.Code(), e.code.Message())
+	errorString := fmt.Sprintf("(%s) #%d '%s'", e.filePosition, e.statusCode.FullCode(), e.statusCode.Message())
 
 	if e.context != nil {
 		var fromContext []string
@@ -71,8 +71,8 @@ func (e appError) Unwrap() error {
 	return e.wrappedError
 }
 
-func (e appError) Code() Code {
-	return e.code
+func (e appError) StatusCode() StatusCode {
+	return e.statusCode
 }
 
 func (e appError) Is(err error) bool {
@@ -81,7 +81,7 @@ func (e appError) Is(err error) bool {
 	if !ok {
 		return false
 	}
-	return e.code.As(e2.code)
+	return e.statusCode.As(e2.statusCode)
 }
 
 func (e appError) Equal(err error) bool {
@@ -90,65 +90,65 @@ func (e appError) Equal(err error) bool {
 	if !ok {
 		return false
 	}
-	return e.code.Is(e2.code)
+	return e.statusCode.Is(e2.statusCode)
 }
 
 // WithInformCode sets the inform code of the error
 func (e appError) WithInformCode(informCode int) ErrorCreator {
-	e.code = e.code.WithInformCode(informCode)
+	e.statusCode = e.statusCode.WithInformCode(informCode)
 	return e
 }
 
 // WithObjectCode sets the object code of the error
 func (e appError) WithObjectCode(objectCode int) ErrorCreator {
-	e.code = e.code.WithObjectCode(objectCode)
+	e.statusCode = e.statusCode.WithObjectCode(objectCode)
 	return e
 }
 
 // WithDetailCode sets the detail code of the error
 func (e appError) WithDetailCode(detailCode int) ErrorCreator {
-	e.code = e.code.WithDetailCode(detailCode)
+	e.statusCode = e.statusCode.WithDetailCode(detailCode)
 	return e
 }
 
 // WithMessage sets the message of the error
 func (e appError) WithMessage(message string) ErrorCreator {
-	e.code = e.code.WithMessage(message)
+	e.statusCode = e.statusCode.WithMessage(message)
 
 	return e
 }
 
 // WithMessageF sets the message of the error with a formatted string
 func (e appError) WithMessageF(format string, a ...any) ErrorCreator {
-	e.code = e.code.WithMessageF(format, a...)
+	e.statusCode = e.statusCode.WithMessageF(format, a...)
 
 	return e
 }
 
-// WithCode sets the code of the error
-func (e appError) WithCode(code Code) ErrorCreator {
-	e.code = code
+// WithStatusCode sets the code of the error
+func (e appError) WithStatusCode(statusCode StatusCode) ErrorCreator {
+	e.statusCode = statusCode
 	return e
 }
 
 // WithContext sets the context of the error
-func (e appError) WithContext(key string, value interface{}) ErrorCreator {
+func (e appError) WithContext(key string, value any) ErrorCreator {
 	if e.context == nil {
-		e.context = make(map[string]interface{})
+		e.context = make(map[string]any)
 	}
 	e.context[key] = value
 	return e
 }
 
 // WithDetail sets a detail of the error
-func (e appError) WithDetail(key string, value interface{}) ErrorCreator {
-	e.code = e.code.WithDetail(key, value)
+func (e appError) WithDetail(key string, value any) ErrorCreator {
+	e.statusCode = e.statusCode.WithDetail(key, value)
 	return e
 }
 
 // WithDetails sets the details of the error
-func (e appError) WithDetails(details map[string]interface{}) ErrorCreator {
-	e.code = e.code.WithDetails(details)
+func (e appError) WithDetails(details map[string]any) ErrorCreator {
+	e.statusCode = e.statusCode.WithDetails(details)
 	return e
 }
 
@@ -160,18 +160,24 @@ func (e appError) WithError(err error) ErrorCreator {
 
 // WithWrappedError wraps a wrapped error in the current error
 func (e appError) WithWrappedError(errCreator ErrorCreator) ErrorCreator {
-	e.wrappedError = errCreator.Err()
+	e.wrappedError = errCreator.Err(1)
 	return e
 }
 
 // Err returns the error with the stack trace
-func (e appError) Err() Error {
-	return e.saveStack()
+// The argument skip is the number of stack frames to ascend, with 0 or empty identifying the caller of Err.
+func (e appError) Err(skip ...int) Error {
+	if len(skip) > 0 && skip[0] >= 0 {
+		skip[0]++
+	} else {
+		skip = append(skip, 1)
+	}
+	return e.saveStack(skip[0])
 }
 
-// UnwrapNotInternalError unwraps the error until it finds an error that is not internal
+// UnwrapNotInternalError unwraps the error until it finds an error that is not internal or returns nil if it is not found
 func (e appError) UnwrapNotInternalError() Error {
-	if e.code.IsInternal() {
+	if e.statusCode.IsInternal() {
 		wrapped, ok := e.wrappedError.(interface{ UnwrapNotInternalError() Error })
 		if ok {
 			return wrapped.UnwrapNotInternalError()
@@ -181,8 +187,13 @@ func (e appError) UnwrapNotInternalError() Error {
 	return e
 }
 
-func (e appError) saveStack() Error {
-	_, file, line, ok := runtime.Caller(2)
+// The argument skip is the number of stack frames to ascend, with 0 identifying the caller of saveStack.
+func (e appError) saveStack(skip int) Error {
+	if skip < 0 {
+		skip = 0
+	}
+	skip++
+	_, file, line, ok := runtime.Caller(skip)
 	if ok {
 		currentDir, er := os.Getwd()
 		if er != nil {
@@ -195,12 +206,11 @@ func (e appError) saveStack() Error {
 }
 
 var (
-	ErrObjectNotFound  = newError().WithCode(codeObjectNotFound)
-	ErrObjectExists    = newError().WithCode(codeObjectExists)
-	ErrForbidden       = newError().WithCode(codeForbidden)
-	ErrUnauthenticated = newError().WithCode(codeUnauthenticated)
-	ErrInvalidData     = newError().WithCode(codeInvalidData)
-	ErrInternal        = newError()
-	Success            = newError().WithCode(codeSuccess)
-	ErrConflict        = newError().WithCode(codeConflict)
+	ErrObjectNotFound  = NewError().WithStatusCode(StatusCodeObjectNotFound)
+	ErrObjectExists    = NewError().WithStatusCode(StatusCodeObjectExists)
+	ErrForbidden       = NewError().WithStatusCode(StatusCodeForbidden)
+	ErrUnauthenticated = NewError().WithStatusCode(StatusCodeUnauthenticated)
+	ErrInvalidData     = NewError().WithStatusCode(StatusCodeInvalidData)
+	ErrInternal        = NewError()
+	ErrConflict        = NewError().WithStatusCode(StatusCodeConflict)
 )

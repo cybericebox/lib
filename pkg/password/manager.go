@@ -2,8 +2,9 @@ package password
 
 import (
 	"errors"
-	"github.com/cybericebox/lib/pkg/libError"
 	"strings"
+
+	"github.com/cybericebox/lib/pkg/libError"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -60,35 +61,69 @@ func (m *Manager) Matches(plaintextPassword, hashedPassword string) (bool, error
 
 func (m *Manager) CheckPasswordComplexity(password string) error {
 	if len(password) < m.passwordComplexityConfig.MinLength {
-		return libError.ErrorInvalidPasswordComplexity.WithDetail("minLength", m.passwordComplexityConfig.MinLength).Err()
+		return libError.ErrorInvalidPasswordComplexity.WithDetail(
+			"minLength",
+			m.passwordComplexityConfig.MinLength,
+		).Err()
 	}
 
 	if len(password) > m.passwordComplexityConfig.MaxLength {
-		return libError.ErrorInvalidPasswordComplexity.WithDetail("maxLength", m.passwordComplexityConfig.MaxLength).Err()
+		return libError.ErrorInvalidPasswordComplexity.WithDetail(
+			"maxLength",
+			m.passwordComplexityConfig.MaxLength,
+		).Err()
 	}
 
-	if len(strings.FieldsFunc(password, func(r rune) bool {
-		return r >= '0' && r <= '9'
-	})) < m.passwordComplexityConfig.MinDigits {
-		return libError.ErrorInvalidPasswordComplexity.WithDetail("minDigits", m.passwordComplexityConfig.MinDigits).Err()
+	if len(
+		strings.FieldsFunc(
+			password, func(r rune) bool {
+				return r >= '0' && r <= '9'
+			},
+		),
+	) < m.passwordComplexityConfig.MinDigits {
+		return libError.ErrorInvalidPasswordComplexity.WithDetail(
+			"minDigits",
+			m.passwordComplexityConfig.MinDigits,
+		).Err()
 	}
 
-	if len(strings.FieldsFunc(password, func(r rune) bool {
-		return r >= 'A' && r <= 'Z'
-	})) < m.passwordComplexityConfig.MinCapitalLetters {
-		return libError.ErrorInvalidPasswordComplexity.WithDetail("minCapitalLetters", m.passwordComplexityConfig.MinCapitalLetters).Err()
+	if len(
+		strings.FieldsFunc(
+			password, func(r rune) bool {
+				return r >= 'A' && r <= 'Z'
+			},
+		),
+	) < m.passwordComplexityConfig.MinCapitalLetters {
+		return libError.ErrorInvalidPasswordComplexity.WithDetail(
+			"minCapitalLetters",
+			m.passwordComplexityConfig.MinCapitalLetters,
+		).Err()
 	}
 
-	if len(strings.FieldsFunc(password, func(r rune) bool {
-		return r >= 'a' && r <= 'z'
-	})) < m.passwordComplexityConfig.MinSmallLetters {
-		return libError.ErrorInvalidPasswordComplexity.WithDetail("minSmallLetters", m.passwordComplexityConfig.MinSmallLetters).Err()
+	if len(
+		strings.FieldsFunc(
+			password, func(r rune) bool {
+				return r >= 'a' && r <= 'z'
+			},
+		),
+	) < m.passwordComplexityConfig.MinSmallLetters {
+		return libError.ErrorInvalidPasswordComplexity.WithDetail(
+			"minSmallLetters",
+			m.passwordComplexityConfig.MinSmallLetters,
+		).Err()
 	}
 
-	if len(strings.FieldsFunc(password, func(r rune) bool {
-		return r >= 33 && r <= 47
-	})) < m.passwordComplexityConfig.MinSpecialCharacters {
-		return libError.ErrorInvalidPasswordComplexity.WithDetail("minSpecialCharacters", m.passwordComplexityConfig.MinSpecialCharacters).Err()
+	if len(
+		strings.FieldsFunc(
+			password, func(r rune) bool {
+				return r >= 33 && r <= 47
+			},
+		),
+	) < m.passwordComplexityConfig.MinSpecialCharacters {
+		return libError.ErrorInvalidPasswordComplexity.WithDetail(
+			"minSpecialCharacters",
+			m.passwordComplexityConfig.MinSpecialCharacters,
+		).Err()
 	}
 
 	return nil

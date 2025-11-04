@@ -3,8 +3,10 @@ package wgKeyGen
 import (
 	"crypto/rand"
 	"encoding/base64"
-	"github.com/cybericebox/lib/pkg/libError"
+
 	"golang.org/x/crypto/curve25519"
+
+	"github.com/cybericebox/lib/pkg/libError"
 )
 
 // keySize defines the size of the key

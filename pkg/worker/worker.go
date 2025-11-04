@@ -1,12 +1,14 @@
 package worker
 
 import (
-	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
+	"context"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/rs/zerolog/log"
 )
 
 type (
@@ -28,19 +30,22 @@ type (
 
 	task struct {
 		key string // key to identify Task
-		do  func() error
+		do  func(ctx context.Context) error
 		// checkIfNeedToDo returns if it needs to do now, not nil timeToDo is time to do Task if not now
-		checkIfNeedToDo func() (need bool, nextTimeToDo *time.Time, err error)
+		checkIfNeedToDo func(ctx context.Context) (need bool, nextTimeToDo *time.Time, err error)
 
 		timeToDo       time.Time
 		repeatDuration time.Duration
 
 		// checkIfNeedToRetry returns if it needs to retry, not nil timeToRetry is time to retry Task if not now
-		checkIfNeedToRetry func(checkIfNeedToDoError, doError error, retriesCount int) (need bool, timeToRetry *time.Time)
-		retriesCount       int
+		checkIfNeedToRetry func(ctx context.Context, checkIfNeedToDoError, doError error, retriesCount int) (
+			need bool,
+			timeToRetry *time.Time,
+		)
+		retriesCount int
 
 		deps   []string
-		onDone func(checkIfNeedToDoError, doError error)
+		onDone func(ctx context.Context, checkIfNeedToDoError, doError error)
 
 		exitStatus status
 		result     taskResult
@@ -53,10 +58,16 @@ type (
 
 	TaskCreator interface {
 		WithKey(key ...string) TaskCreator
-		WithDo(do func() error) TaskCreator
-		WithCheckIfNeedToDo(checkIfNeedToDo func() (bool, *time.Time, error)) TaskCreator
-		WithCheckIfNeedToRetry(checkIfNeedToRetry func(checkIfNeedToDoError, doError error, retriesCount int) (need bool, timeToRetry *time.Time)) TaskCreator
-		WithOnDone(onDone func(checkIfNeedToDoError, doError error)) TaskCreator
+		WithDo(do func(ctx context.Context) error) TaskCreator
+		WithCheckIfNeedToDo(checkIfNeedToDo func(ctx context.Context) (bool, *time.Time, error)) TaskCreator
+		WithCheckIfNeedToRetry(
+			checkIfNeedToRetry func(
+				ctx context.Context,
+				checkIfNeedToDoError, doError error,
+				retriesCount int,
+			) (need bool, timeToRetry *time.Time),
+		) TaskCreator
+		WithOnDone(onDone func(ctx context.Context, checkIfNeedToDoError, doError error)) TaskCreator
 		WithTimeToDo(timeToDo time.Time) TaskCreator
 		WithRepeatDuration(repeatDuration time.Duration) TaskCreator
 		WithDependency(key ...string) TaskCreator
@@ -79,12 +90,12 @@ func (t *task) WithKey(keys ...string) TaskCreator {
 	return t
 }
 
-func (t *task) WithDo(do func() error) TaskCreator {
+func (t *task) WithDo(do func(ctx context.Context) error) TaskCreator {
 	t.do = do
 	return t
 }
 
-func (t *task) WithCheckIfNeedToDo(checkIfNeedToDo func() (bool, *time.Time, error)) TaskCreator {
+func (t *task) WithCheckIfNeedToDo(checkIfNeedToDo func(ctx context.Context) (bool, *time.Time, error)) TaskCreator {
 	t.checkIfNeedToDo = checkIfNeedToDo
 	return t
 }
@@ -105,13 +116,19 @@ func (t *task) WithDependency(keys ...string) TaskCreator {
 	return t
 }
 
-func (t *task) WithOnDone(onDone func(checkIfNeedToDoError, doError error)) TaskCreator {
+func (t *task) WithOnDone(onDone func(ctx context.Context, checkIfNeedToDoError, doError error)) TaskCreator {
 	t.onDone = onDone
 
 	return t
 }
 
-func (t *task) WithCheckIfNeedToRetry(checkIfNeedToRetry func(checkIfNeedToDoError, doError error, retriesCount int) (need bool, timeToRetry *time.Time)) TaskCreator {
+func (t *task) WithCheckIfNeedToRetry(
+	checkIfNeedToRetry func(
+		ctx context.Context,
+		checkIfNeedToDoError, doError error,
+		retriesCount int,
+	) (need bool, timeToRetry *time.Time),
+) TaskCreator {
 	t.checkIfNeedToRetry = checkIfNeedToRetry
 	return t
 }
@@ -127,7 +144,7 @@ func (t *task) Create() task {
 	}
 	// if checkIfNeedToDo is not set, set it to always need to do
 	if t.checkIfNeedToDo == nil {
-		t.checkIfNeedToDo = func() (need bool, nextTimeToDo *time.Time, err error) {
+		t.checkIfNeedToDo = func(_ context.Context) (need bool, nextTimeToDo *time.Time, err error) {
 			return true, nil, nil
 		}
 	}
@@ -173,9 +190,11 @@ func (w *taskWorker) manageTasks() {
 			w.m.Lock()
 			w.queuedTasks = append(w.queuedTasks, t)
 
-			slices.SortFunc(w.queuedTasks, func(i, j task) int {
-				return i.timeToDo.Compare(j.timeToDo)
-			})
+			slices.SortFunc(
+				w.queuedTasks, func(i, j task) int {
+					return i.timeToDo.Compare(j.timeToDo)
+				},
+			)
 			w.m.Unlock()
 		case t := <-w.doneTasks:
 			if t.exitStatus == statusSkipped {
@@ -186,7 +205,10 @@ func (w *taskWorker) manageTasks() {
 			}
 			if t.exitStatus == statusFailed {
 				if t.result.CheckIfNeedToDoError != nil {
-					log.Error().Str("key", t.key).Err(t.result.CheckIfNeedToDoError).Msg("Task failed on checkIfNeedToDo")
+					log.Error().Str(
+						"key",
+						t.key,
+					).Err(t.result.CheckIfNeedToDoError).Msg("Task failed on checkIfNeedToDo")
 				}
 				if t.result.DoError != nil {
 					log.Error().Str("key", t.key).Err(t.result.DoError).Msg("Task failed on do")
@@ -202,8 +224,10 @@ func (w *taskWorker) manageTasks() {
 			}
 			w.m.Unlock()
 
+			ctx := context.TODO()
+
 			if t.onDone != nil {
-				t.onDone(t.result.CheckIfNeedToDoError, t.result.DoError)
+				t.onDone(ctx, t.result.CheckIfNeedToDoError, t.result.DoError)
 			}
 
 		case <-time.Tick(w.throttle):
@@ -240,7 +264,8 @@ func (w *taskWorker) runWorkerPool() {
 	for i := 0; i < w.maxWorkers; i++ {
 		go func(workerID int) {
 			for t := range w.toDoTasks {
-				w.doTask(t, workerID)
+				ctx := context.TODO()
+				w.doTask(ctx, t, workerID)
 			}
 		}(i + 1)
 	}
@@ -269,7 +294,7 @@ func (w *taskWorker) addTaskToRetry(t task) {
 	w.inputTasks <- t
 }
 
-func (w *taskWorker) doTask(t task, workerID int) {
+func (w *taskWorker) doTask(ctx context.Context, t task, workerID int) {
 	log.Debug().Str("key", t.key).Msgf("Worker %d started Task", workerID)
 
 	// check if Task is repeatable then add to queue with new time and do Task
@@ -281,10 +306,10 @@ func (w *taskWorker) doTask(t task, workerID int) {
 	}
 	// if Task is not repeatable, do Task and check if it's needed to do again
 	// check if Task is needed to be done
-	need, nextTimeToDo, err := t.checkIfNeedToDo()
+	need, nextTimeToDo, err := t.checkIfNeedToDo(ctx)
 	if err != nil {
 		t.result.CheckIfNeedToDoError = err
-		w.tryTaskToDone(t)
+		w.tryTaskToDone(ctx, t)
 		return
 	}
 
@@ -292,15 +317,18 @@ func (w *taskWorker) doTask(t task, workerID int) {
 	// do Task if it's needed
 	if need {
 		log.Debug().Str("key", t.key).Msgf("Worker %d does Task", workerID)
-		if err = t.do(); err != nil {
+		if err = t.do(ctx); err != nil {
 			t.result.DoError = err
-			w.tryTaskToDone(t)
+			w.tryTaskToDone(ctx, t)
 			return
 		}
 	} else {
 		// if Task is not needed to do now, but new time, update Task time and add to queue
 		if !(nextTimeToDo == nil) {
-			log.Debug().Str("key", t.key).Msgf("Worker %d Task is not needed to do now, but new time, update Task time and add to queue", workerID)
+			log.Debug().Str(
+				"key",
+				t.key,
+			).Msgf("Worker %d Task is not needed to do now, but new time, update Task time and add to queue", workerID)
 			t.timeToDo = *nextTimeToDo
 			w.AddTask(t)
 		} else {
@@ -308,10 +336,10 @@ func (w *taskWorker) doTask(t task, workerID int) {
 		}
 	}
 
-	w.tryTaskToDone(t)
+	w.tryTaskToDone(ctx, t)
 }
 
-func (w *taskWorker) tryTaskToDone(t task) {
+func (w *taskWorker) tryTaskToDone(ctx context.Context, t task) {
 	log.Debug().Str("key", t.key).Msg("Trying to add Task to done")
 
 	if t.result.CheckIfNeedToDoError == nil && t.result.DoError == nil {
@@ -325,7 +353,7 @@ func (w *taskWorker) tryTaskToDone(t task) {
 		return
 	}
 
-	need, timeToRetry := t.checkIfNeedToRetry(t.result.CheckIfNeedToDoError, t.result.DoError, t.retriesCount)
+	need, timeToRetry := t.checkIfNeedToRetry(ctx, t.result.CheckIfNeedToDoError, t.result.DoError, t.retriesCount)
 	if need {
 		// if time to retry is not set, set it to now
 		if timeToRetry == nil {

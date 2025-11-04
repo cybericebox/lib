@@ -2,10 +2,12 @@ package token
 
 import (
 	"encoding/base64"
-	"github.com/cybericebox/lib/pkg/libError"
-	"github.com/golang-jwt/jwt"
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+
+	"github.com/cybericebox/lib/pkg/libError"
 )
 
 const (
@@ -251,11 +253,16 @@ func (m *manager) newToken(subject interface{}, tokenTTL time.Duration, tokenTyp
 }
 
 func (m *manager) parseToken(Token string) (*jwt.Token, error) {
-	return jwt.Parse(Token, func(token *jwt.Token) (i interface{}, err error) {
-		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, libError.ErrToken.WithMessage("Unexpected signing method").WithContext("method", token.Header["alg"]).Err()
-		}
+	return jwt.Parse(
+		Token, func(token *jwt.Token) (i interface{}, err error) {
+			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+				return nil, libError.ErrToken.WithMessage("Unexpected signing method").WithContext(
+					"method",
+					token.Header["alg"],
+				).Err()
+			}
 
-		return []byte(m.signingKey), nil
-	})
+			return []byte(m.signingKey), nil
+		},
+	)
 }

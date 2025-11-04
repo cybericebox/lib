@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
-	"github.com/cybericebox/lib/pkg/libError"
-	goipam "github.com/metal-stack/go-ipam"
 	"net"
 	"net/netip"
+
+	goipam "github.com/metal-stack/go-ipam"
+
+	"github.com/cybericebox/lib/pkg/libError"
 )
 
 type (
